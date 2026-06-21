@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AppState } from "./types";
-import { applyActionItems, runPlansForCollabAccepted, runPlansForTaskDone } from "./engine";
-import { extractActionItems, generateDigest } from "./llm";
+import { applyActionItems, applyInbound, runPlansForCollabAccepted, runPlansForTaskDone } from "./engine";
+import { extractActionItems, generateDigest, triageInbound } from "./llm";
 import { buildActivitySnapshot } from "./digest";
 import { loadSettings } from "./settings";
 
@@ -111,6 +111,19 @@ export function seedState(): AppState {
         ],
         requires: { llm: true, mcp: false },
       },
+      {
+        id: "ap_inbound_task",
+        name: "인바운드 → 태스크",
+        enabled: true,
+        trigger: { type: "webhook", event: "inbound.received" },
+        steps: [
+          { type: "classify", via: "llm" },
+          { type: "createTask", assignTo: "node.firstMember", status: "todo" },
+          { type: "notify", to: ["assignee"], channel: "inapp" },
+          { type: "deliver", via: "mcp", to: "Gmail / Slack" },
+        ],
+        requires: { llm: true, mcp: true },
+      },
     ],
     collabRequests: [
       {
@@ -127,6 +140,7 @@ export function seedState(): AppState {
     notifications: [],
     log: [],
     digests: [],
+    inbounds: [],
   };
 }
 
@@ -163,6 +177,8 @@ export function useRelaiStore() {
   const [notesResult, setNotesResult] = useState<import("./llm").ExtractResult | null>(null);
   const [digestBusy, setDigestBusy] = useState(false);
   const [digestError, setDigestError] = useState<string | null>(null);
+  const [inboundBusy, setInboundBusy] = useState(false);
+  const [inboundError, setInboundError] = useState<string | null>(null);
 
   const stateRef = useRef(state);
   useEffect(() => {
@@ -388,6 +404,62 @@ export function useRelaiStore() {
     }
   }, []);
 
+  const processInbound = useCallback(async (text: string, sourceType: string) => {
+    const settings = loadSettings();
+    if (!settings.apiKey) {
+      setInboundError("먼저 LLM 키를 저장하세요 (노트 패널에서).");
+      return;
+    }
+    if (!text.trim()) return;
+
+    setInboundBusy(true);
+    setInboundError(null);
+    try {
+      const nodeNames = stateRef.current.org
+        .filter((n) => n.parentId !== null)
+        .map((n) => n.name);
+
+      const triage = await triageInbound({
+        provider: settings.provider,
+        apiKey: settings.apiKey,
+        model: settings.model,
+        text,
+        sourceType,
+        nodeNames,
+      });
+
+      setState((prev) => {
+        const applied = applyInbound(prev, triage, sourceType);
+        const logId = applied.log[0]?.id ?? Date.now().toString();
+        setTimeout(
+          () =>
+            setToasts((t) => [
+              ...t,
+              {
+                id: `toast_${logId}`,
+                planName: "인바운드 → 태스크",
+                taskTitle: triage.summary,
+                notifiedCount: applied.notifications.length,
+              },
+            ]),
+          0
+        );
+        return {
+          ...prev,
+          tasks: applied.tasks,
+          checklists: applied.checklists,
+          inbounds: applied.inbounds,
+          notifications: [...applied.notifications, ...prev.notifications],
+          log: [...applied.log, ...prev.log],
+        };
+      });
+    } catch (e) {
+      setInboundError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setInboundBusy(false);
+    }
+  }, []);
+
   const markAllRead = useCallback(() => {
     setState((prev) => ({
       ...prev,
@@ -435,12 +507,15 @@ export function useRelaiStore() {
     notesResult,
     digestBusy,
     digestError,
+    inboundBusy,
+    inboundError,
     setStatus,
     togglePlan,
     createCollabRequest,
     resolveCollabRequest,
     analyzeNotes,
     generateStandupDigest,
+    processInbound,
     markAllRead,
     reset,
     exportJson,

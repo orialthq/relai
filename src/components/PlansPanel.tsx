@@ -13,6 +13,8 @@ function stepLabel(step: ActionPlan["steps"][number]): string {
   if (step.type === "createTask") return "작업 생성 & 배정";
   if (step.type === "extract") return "LLM 액션아이템 추출";
   if (step.type === "summarize") return "LLM 요약";
+  if (step.type === "classify") return "LLM 분류·초안";
+  if (step.type === "deliver") return `MCP 전달 → ${step.to}`;
   return `알림 → ${step.to.join(", ")}`;
 }
 

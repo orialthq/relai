@@ -5,6 +5,7 @@ import { PlansPanel } from "./components/PlansPanel";
 import { TaskBoard } from "./components/TaskBoard";
 import { CollabPanel } from "./components/CollabPanel";
 import { NotesPanel } from "./components/NotesPanel";
+import { InboundPanel } from "./components/InboundPanel";
 import { ChecklistPanel } from "./components/ChecklistPanel";
 import { DigestPanel } from "./components/DigestPanel";
 import { RelayLog, Notifications } from "./components/RelayLog";
@@ -72,6 +73,12 @@ export default function App() {
             error={store.llmError}
             result={store.notesResult}
             onAnalyze={store.analyzeNotes}
+          />
+          <InboundPanel
+            state={store.state}
+            busy={store.inboundBusy}
+            error={store.inboundError}
+            onProcess={store.processInbound}
           />
           <TaskBoard state={store.state} onSetStatus={store.setStatus} />
         </div>

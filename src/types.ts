@@ -69,6 +69,8 @@ export type Step =
   | { type: "createTask"; assignTo: "node.firstMember"; status: TaskStatus }
   | { type: "extract"; via: "llm" }
   | { type: "summarize"; via: "llm" }
+  | { type: "classify"; via: "llm" }
+  | { type: "deliver"; via: "mcp"; to: string }
   | { type: "notify"; to: NotifyTarget[]; channel: "inapp" };
 
 export interface ActionPlan {
@@ -88,8 +90,23 @@ export interface AppState {
   plans: ActionPlan[];
   collabRequests: CollabRequest[];
   digests: Digest[];
+  inbounds: Inbound[];
   notifications: Notification[];
   log: LogEntry[];
+}
+
+export type Priority = "high" | "normal" | "low";
+
+export interface Inbound {
+  id: string;
+  ts: number;
+  sourceType: string; // 이메일 / 문의 / GitHub 이슈 / 기타
+  summary: string;
+  nodeId: string;
+  priority: Priority;
+  suggestedChannel: string; // MCP로 전달 예정인 채널
+  draftReply: string;
+  taskId: string;
 }
 
 export interface Digest {

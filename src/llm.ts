@@ -155,3 +155,66 @@ export async function generateDigest(input: DigestInput): Promise<string> {
   });
   return text.trim();
 }
+
+// ---------- #5 인바운드 → 태스크 ----------
+
+export type Priority = "high" | "normal" | "low";
+
+export interface TriageResult {
+  node: string;
+  priority: Priority;
+  summary: string;
+  suggestedChannel: string;
+  draftReply: string;
+}
+
+export interface TriageInput {
+  provider: Provider;
+  apiKey: string;
+  model: string;
+  text: string;
+  sourceType: string;
+  nodeNames: string[];
+}
+
+const TRIAGE_SYSTEM =
+  "너는 들어온 메시지를 분류해서 올바른 팀의 작업으로 만드는 트리아지 도우미야. 반드시 JSON만 출력해.";
+
+function triagePrompt(text: string, sourceType: string, nodeNames: string[]): string {
+  return [
+    "다음 인바운드 메시지를 분석해서 아래 형식의 JSON만 출력해.",
+    `소스 유형: ${sourceType}`,
+    `담당 가능 팀: ${nodeNames.join(", ")}`,
+    'JSON 형식: {"node": string, "priority": "high"|"normal"|"low", "summary": string, "suggestedChannel": string, "draftReply": string}',
+    "- node는 위 팀 중 정확히 하나.",
+    "- summary는 한 줄 작업 제목.",
+    "- suggestedChannel은 회신을 보낼 채널 (ex. Gmail 회신, Slack #support, Notion 태스크).",
+    "- draftReply는 2~3문장 한국어 회신 초안.",
+    "",
+    "메시지:",
+    '"""',
+    text,
+    '"""',
+  ].join("\n");
+}
+
+export async function triageInbound(input: TriageInput): Promise<TriageResult> {
+  const out = await callLLM({
+    provider: input.provider,
+    apiKey: input.apiKey,
+    model: input.model,
+    system: TRIAGE_SYSTEM,
+    user: triagePrompt(input.text, input.sourceType, input.nodeNames),
+    jsonMode: true,
+  });
+  const clean = out.replace(/```json/gi, "").replace(/```/g, "").trim();
+  const p = JSON.parse(clean) as Partial<TriageResult>;
+  const priority: Priority = p.priority === "high" || p.priority === "low" ? p.priority : "normal";
+  return {
+    node: typeof p.node === "string" ? p.node : "",
+    priority,
+    summary: typeof p.summary === "string" ? p.summary : "분류된 작업",
+    suggestedChannel: typeof p.suggestedChannel === "string" ? p.suggestedChannel : "Gmail 회신",
+    draftReply: typeof p.draftReply === "string" ? p.draftReply : "",
+  };
+}

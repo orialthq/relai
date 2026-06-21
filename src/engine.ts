@@ -320,3 +320,106 @@ export function applyActionItems(
     fired: [{ planName: "노트 → 액션아이템", logEntry, notifications }],
   };
 }
+
+/**
+ * Routes a triaged inbound message into the workspace: creates a task in the
+ * classified node, opens a checklist item, records the inbound (with the drafted
+ * reply for manual/MCP delivery), and notifies the owner.
+ */
+export interface InboundRunResult {
+  tasks: AppState["tasks"];
+  checklists: Checklist[];
+  inbounds: AppState["inbounds"];
+  notifications: Notification[];
+  log: LogEntry[];
+  fired: FireResult[];
+}
+
+export function applyInbound(
+  state: AppState,
+  triage: import("./llm").TriageResult,
+  sourceType: string
+): InboundRunResult {
+  const childNodes = state.org.filter((n) => n.parentId !== null);
+  const node =
+    childNodes.find((n) => n.name === triage.node) ?? childNodes[0] ?? state.org[0];
+  const members = state.members.filter((m) => m.nodeId === node?.id);
+  const owner = members[0];
+
+  let checklists = state.checklists;
+  const item = { id: uid("ci"), label: triage.summary, checked: false };
+  const existing = checklists.find((c) => c.nodeId === node?.id);
+  let checklistId: string;
+  if (existing) {
+    checklistId = existing.id;
+    checklists = checklists.map((c) =>
+      c.id === existing.id ? { ...c, items: [...c.items, item] } : c
+    );
+  } else {
+    checklistId = uid("cl");
+    checklists = [
+      ...checklists,
+      { id: checklistId, name: `${node?.name ?? "팀"} 회의록`, nodeId: node?.id ?? "", items: [item] },
+    ];
+  }
+
+  const taskId = uid("t");
+  const tasks = [
+    ...state.tasks,
+    {
+      id: taskId,
+      title: triage.summary,
+      status: "todo" as const,
+      assigneeId: owner?.id ?? "",
+      nodeId: node?.id ?? "",
+      link: { checklistId, itemId: item.id },
+    },
+  ];
+
+  const inbound = {
+    id: uid("in"),
+    ts: Date.now(),
+    sourceType,
+    summary: triage.summary,
+    nodeId: node?.id ?? "",
+    priority: triage.priority,
+    suggestedChannel: triage.suggestedChannel,
+    draftReply: triage.draftReply,
+    taskId,
+  };
+
+  const notifications: Notification[] = owner
+    ? [
+        {
+          id: uid("ntf"),
+          toMemberId: owner.id,
+          title: `인바운드 배정: ${triage.summary}`,
+          body: `${node?.name ?? "팀"}으로 인바운드(${sourceType})가 라우팅됐어요. 우선순위 ${triage.priority}.`,
+          ts: Date.now(),
+          read: false,
+        },
+      ]
+    : [];
+
+  const logEntry: LogEntry = {
+    id: uid("log"),
+    ts: Date.now(),
+    planName: "인바운드 → 태스크",
+    taskTitle: triage.summary,
+    nodeName: node?.name ?? "—",
+    steps: [
+      `분류: ${node?.name ?? "?"} · 우선순위 ${triage.priority}`,
+      `작업 생성${owner ? ` (담당 ${owner.name})` : ""}`,
+      `MCP 전달 예정: ${triage.suggestedChannel}`,
+    ],
+  };
+
+  return {
+    tasks,
+    checklists,
+    inbounds: [inbound, ...state.inbounds],
+    notifications,
+    log: [logEntry],
+    fired: [{ planName: "인바운드 → 태스크", logEntry, notifications }],
+  };
+}

@@ -1013,6 +1013,112 @@ button {
   border-radius: 8px;
 }
 
+/* ---------- inbound → task (#5) ---------- */
+.inbound-form {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.inbound-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.inbound-row .select {
+  flex: 1;
+}
+
+.inbound-list {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+
+.inbound-card {
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--signal);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  background: var(--surface-2);
+}
+
+.inbound-card-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 7px;
+}
+
+.prio {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  padding: 2px 7px;
+  border-radius: 4px;
+  letter-spacing: 0.02em;
+}
+
+.prio--high {
+  color: var(--danger);
+  background: rgba(255, 107, 107, 0.12);
+}
+
+.prio--normal {
+  color: var(--signal);
+  background: rgba(255, 176, 32, 0.1);
+}
+
+.prio--low {
+  color: var(--muted);
+  background: var(--surface);
+}
+
+.inbound-route {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text);
+}
+
+.inbound-summary {
+  font-weight: 600;
+  font-size: 13.5px;
+}
+
+.inbound-channel {
+  margin-top: 7px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--teal);
+}
+
+.inbound-draft {
+  margin-top: 10px;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 9px;
+}
+
+.inbound-draft-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-bottom: 5px;
+}
+
+.inbound-draft-body {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
 /* ---------- responsive ---------- */
 @media (max-width: 1080px) {
   .workspace {
