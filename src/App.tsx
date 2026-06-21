@@ -1,5 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRelaiStore } from "./store";
+import { Landing } from "./components/Landing";
 import { OrgPanel } from "./components/OrgPanel";
 import { PlansPanel } from "./components/PlansPanel";
 import { TaskBoard } from "./components/TaskBoard";
@@ -12,6 +13,7 @@ import { RelayLog, Notifications } from "./components/RelayLog";
 
 export default function App() {
   const store = useRelaiStore();
+  const [entered, setEntered] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const timed = useRef<Set<string>>(new Set());
 
@@ -23,10 +25,12 @@ export default function App() {
     });
   }, [store.toasts, store]);
 
+  if (!entered) return <Landing onEnter={() => setEntered(true)} />;
+
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand">
+        <div className="brand" onClick={() => setEntered(false)} role="button" tabIndex={0} title="홈으로">
           <span className="brand-mark" aria-hidden>
             rel<span className="brand-ai">AI</span>
           </span>
