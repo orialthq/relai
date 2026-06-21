@@ -6,6 +6,7 @@
   "description": "relai — org-aware automation OS for tiny startups. Tasks relay through your org and run themselves.",
   "scripts": {
     "dev": "vite",
+    "dev:sync": "bash dev.sh",
     "build": "tsc && vite build",
     "preview": "vite preview"
   },

@@ -3,12 +3,14 @@ import type { ActionPlan, AppState } from "../types";
 function triggerLabel(p: ActionPlan): string {
   if (p.trigger.type === "taskStatusChange") return `작업 상태 → ${p.trigger.to}`;
   if (p.trigger.type === "collabAccepted") return "협업 요청 수락됨";
+  if (p.trigger.type === "manual") return "수동 실행";
   return `웹훅: ${p.trigger.event}`;
 }
 
 function stepLabel(step: ActionPlan["steps"][number]): string {
   if (step.type === "checkoff") return "회의록 항목 체크";
   if (step.type === "createTask") return "작업 생성 & 배정";
+  if (step.type === "extract") return "LLM 액션아이템 추출";
   return `알림 → ${step.to.join(", ")}`;
 }
 

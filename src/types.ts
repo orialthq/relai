@@ -58,6 +58,7 @@ export interface LogEntry {
 export type Trigger =
   | { type: "taskStatusChange"; to: TaskStatus }
   | { type: "collabAccepted" }
+  | { type: "manual" }
   | { type: "webhook"; event: string };
 
 export type NotifyTarget = "assignee" | "node" | "fromNode" | "toNode";
@@ -65,6 +66,7 @@ export type NotifyTarget = "assignee" | "node" | "fromNode" | "toNode";
 export type Step =
   | { type: "checkoff"; target: "task.link" }
   | { type: "createTask"; assignTo: "node.firstMember"; status: TaskStatus }
+  | { type: "extract"; via: "llm" }
   | { type: "notify"; to: NotifyTarget[]; channel: "inapp" };
 
 export interface ActionPlan {

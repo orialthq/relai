@@ -861,6 +861,82 @@ button {
   font-size: 11.5px;
 }
 
+/* ---------- notes → action items (#3) ---------- */
+.key-setup,
+.notes-form {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.key-note {
+  margin: 0 0 2px;
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.key-row,
+.notes-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.key-row .select {
+  flex: 0 0 120px;
+}
+
+.key-row .input {
+  flex: 1;
+}
+
+.notes-row .select {
+  flex: 1;
+}
+
+.extract-result {
+  margin-top: 4px;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.extract-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.extract-label {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.extract-list {
+  margin: 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+}
+
+.extract-list li {
+  color: var(--text);
+}
+
+.extract-owner {
+  color: var(--teal);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
 /* ---------- responsive ---------- */
 @media (max-width: 1080px) {
   .workspace {

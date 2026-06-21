@@ -4,6 +4,7 @@ import { OrgPanel } from "./components/OrgPanel";
 import { PlansPanel } from "./components/PlansPanel";
 import { TaskBoard } from "./components/TaskBoard";
 import { CollabPanel } from "./components/CollabPanel";
+import { NotesPanel } from "./components/NotesPanel";
 import { ChecklistPanel } from "./components/ChecklistPanel";
 import { RelayLog, Notifications } from "./components/RelayLog";
 
@@ -63,6 +64,13 @@ export default function App() {
             state={store.state}
             onCreate={store.createCollabRequest}
             onResolve={store.resolveCollabRequest}
+          />
+          <NotesPanel
+            state={store.state}
+            busy={store.llmBusy}
+            error={store.llmError}
+            result={store.notesResult}
+            onAnalyze={store.analyzeNotes}
           />
           <TaskBoard state={store.state} onSetStatus={store.setStatus} />
         </div>

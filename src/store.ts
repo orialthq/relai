@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { AppState } from "./types";
-import { runPlansForCollabAccepted, runPlansForTaskDone } from "./engine";
+import { applyActionItems, runPlansForCollabAccepted, runPlansForTaskDone } from "./engine";
+import { extractActionItems } from "./llm";
+import { loadSettings } from "./settings";
 
 const STORAGE_KEY = "relai.state.v2";
 
@@ -85,6 +87,18 @@ export function seedState(): AppState {
         ],
         requires: { llm: false, mcp: false },
       },
+      {
+        id: "ap_notes_extract",
+        name: "노트 → 액션아이템",
+        enabled: true,
+        trigger: { type: "manual" },
+        steps: [
+          { type: "extract", via: "llm" },
+          { type: "createTask", assignTo: "node.firstMember", status: "todo" },
+          { type: "notify", to: ["assignee"], channel: "inapp" },
+        ],
+        requires: { llm: true, mcp: false },
+      },
     ],
     collabRequests: [
       {
@@ -126,6 +140,14 @@ export interface FiredToast {
 export function useRelaiStore() {
   const [state, setState] = useState<AppState>(load);
   const [toasts, setToasts] = useState<FiredToast[]>([]);
+  const [llmBusy, setLlmBusy] = useState(false);
+  const [llmError, setLlmError] = useState<string | null>(null);
+  const [notesResult, setNotesResult] = useState<import("./llm").ExtractResult | null>(null);
+
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -222,6 +244,64 @@ export function useRelaiStore() {
     });
   }, []);
 
+  const analyzeNotes = useCallback(async (nodeId: string, notes: string) => {
+    const settings = loadSettings();
+    if (!settings.apiKey) {
+      setLlmError("먼저 LLM 키를 저장하세요.");
+      return;
+    }
+    if (!notes.trim()) return;
+
+    setLlmBusy(true);
+    setLlmError(null);
+    setNotesResult(null);
+    try {
+      const memberNames = stateRef.current.members
+        .filter((m) => m.nodeId === nodeId)
+        .map((m) => m.name);
+
+      const result = await extractActionItems({
+        provider: settings.provider,
+        apiKey: settings.apiKey,
+        model: settings.model,
+        notes,
+        memberNames,
+      });
+      setNotesResult(result);
+
+      if (result.actionItems.length > 0) {
+        setState((prev) => {
+          const applied = applyActionItems(prev, nodeId, result.actionItems);
+          const logId = applied.log[0]?.id ?? Date.now().toString();
+          setTimeout(
+            () =>
+              setToasts((t) => [
+                ...t,
+                {
+                  id: `toast_${logId}`,
+                  planName: "노트 → 액션아이템",
+                  taskTitle: `${result.actionItems.length}개 생성`,
+                  notifiedCount: applied.notifications.length,
+                },
+              ]),
+            0
+          );
+          return {
+            ...prev,
+            tasks: applied.tasks,
+            checklists: applied.checklists,
+            notifications: [...applied.notifications, ...prev.notifications],
+            log: [...applied.log, ...prev.log],
+          };
+        });
+      }
+    } catch (e) {
+      setLlmError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLlmBusy(false);
+    }
+  }, []);
+
   const markAllRead = useCallback(() => {
     setState((prev) => ({
       ...prev,
@@ -264,10 +344,14 @@ export function useRelaiStore() {
   return {
     state,
     toasts,
+    llmBusy,
+    llmError,
+    notesResult,
     setStatus,
     togglePlan,
     createCollabRequest,
     resolveCollabRequest,
+    analyzeNotes,
     markAllRead,
     reset,
     exportJson,

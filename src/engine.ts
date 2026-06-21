@@ -240,3 +240,83 @@ export function runPlansForCollabAccepted(state: AppState, requestId: string): C
 
   return { tasks, checklists, notifications: newNotifications, log: newLog, fired };
 }
+
+/**
+ * Applies LLM-extracted action items into a node: each becomes a task assigned to
+ * the matched member (by name, falling back to the node's first member), with a
+ * matching checklist item opened. Sync — the async LLM call happens before this.
+ */
+export function applyActionItems(
+  state: AppState,
+  nodeId: string,
+  items: { title: string; owner: string | null }[]
+): CollabRunResult {
+  const node = state.org.find((n) => n.id === nodeId);
+  const members = state.members.filter((m) => m.nodeId === nodeId);
+
+  let tasks = state.tasks;
+  let checklists = state.checklists;
+  const notifications: Notification[] = [];
+  const steps: string[] = [];
+
+  for (const it of items) {
+    const owner = members.find((m) => m.name === it.owner) ?? members[0];
+
+    const item = { id: uid("ci"), label: it.title, checked: false };
+    const existing = checklists.find((c) => c.nodeId === nodeId);
+    let checklistId: string;
+    if (existing) {
+      checklistId = existing.id;
+      checklists = checklists.map((c) =>
+        c.id === existing.id ? { ...c, items: [...c.items, item] } : c
+      );
+    } else {
+      checklistId = uid("cl");
+      checklists = [
+        ...checklists,
+        { id: checklistId, name: `${node?.name ?? "팀"} 회의록`, nodeId, items: [item] },
+      ];
+    }
+
+    tasks = [
+      ...tasks,
+      {
+        id: uid("t"),
+        title: it.title,
+        status: "todo",
+        assigneeId: owner?.id ?? "",
+        nodeId,
+        link: { checklistId, itemId: item.id },
+      },
+    ];
+
+    if (owner) {
+      notifications.push({
+        id: uid("ntf"),
+        toMemberId: owner.id,
+        title: `새 액션아이템: ${it.title}`,
+        body: `${node?.name ?? "팀"} 회의록에서 "${it.title}" 작업이 배정됐어요.`,
+        ts: Date.now(),
+        read: false,
+      });
+    }
+    steps.push(`작업 생성: ${it.title}${owner ? ` (담당 ${owner.name})` : ""}`);
+  }
+
+  const logEntry: LogEntry = {
+    id: uid("log"),
+    ts: Date.now(),
+    planName: "노트 → 액션아이템",
+    taskTitle: `${items.length}개 추출`,
+    nodeName: node?.name ?? "—",
+    steps,
+  };
+
+  return {
+    tasks,
+    checklists,
+    notifications,
+    log: [logEntry],
+    fired: [{ planName: "노트 → 액션아이템", logEntry, notifications }],
+  };
+}
