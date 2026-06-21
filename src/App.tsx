@@ -6,6 +6,7 @@ import { TaskBoard } from "./components/TaskBoard";
 import { CollabPanel } from "./components/CollabPanel";
 import { NotesPanel } from "./components/NotesPanel";
 import { ChecklistPanel } from "./components/ChecklistPanel";
+import { DigestPanel } from "./components/DigestPanel";
 import { RelayLog, Notifications } from "./components/RelayLog";
 
 export default function App() {
@@ -75,6 +76,12 @@ export default function App() {
           <TaskBoard state={store.state} onSetStatus={store.setStatus} />
         </div>
         <div className="col col--right">
+          <DigestPanel
+            state={store.state}
+            busy={store.digestBusy}
+            error={store.digestError}
+            onGenerate={store.generateStandupDigest}
+          />
           <ChecklistPanel state={store.state} />
           <RelayLog state={store.state} />
           <Notifications state={store.state} onMarkAllRead={store.markAllRead} />

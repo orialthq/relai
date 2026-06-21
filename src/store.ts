@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AppState } from "./types";
 import { applyActionItems, runPlansForCollabAccepted, runPlansForTaskDone } from "./engine";
-import { extractActionItems } from "./llm";
+import { extractActionItems, generateDigest } from "./llm";
+import { buildActivitySnapshot } from "./digest";
 import { loadSettings } from "./settings";
 
 const STORAGE_KEY = "relai.state.v2";
@@ -99,6 +100,17 @@ export function seedState(): AppState {
         ],
         requires: { llm: true, mcp: false },
       },
+      {
+        id: "ap_standup_digest",
+        name: "스탠드업 다이제스트",
+        enabled: true,
+        trigger: { type: "schedule", every: "day" },
+        steps: [
+          { type: "summarize", via: "llm" },
+          { type: "notify", to: ["all"], channel: "inapp" },
+        ],
+        requires: { llm: true, mcp: false },
+      },
     ],
     collabRequests: [
       {
@@ -114,6 +126,7 @@ export function seedState(): AppState {
     ],
     notifications: [],
     log: [],
+    digests: [],
   };
 }
 
@@ -123,7 +136,12 @@ function load(): AppState {
     if (!raw) return seedState();
     const parsed = JSON.parse(raw) as AppState;
     if (!parsed.tasks || !parsed.plans) return seedState();
-    return { ...seedState(), ...parsed }; // backfill any newly-added keys
+    const merged = { ...seedState(), ...parsed }; // backfill any newly-added keys
+    // surface newly-shipped seed plans (by id) without wiping the user's workspace
+    const haveIds = new Set(merged.plans.map((p) => p.id));
+    const missing = seedState().plans.filter((p) => !haveIds.has(p.id));
+    if (missing.length) merged.plans = [...merged.plans, ...missing];
+    return merged;
   } catch {
     return seedState();
   }
@@ -143,6 +161,8 @@ export function useRelaiStore() {
   const [llmBusy, setLlmBusy] = useState(false);
   const [llmError, setLlmError] = useState<string | null>(null);
   const [notesResult, setNotesResult] = useState<import("./llm").ExtractResult | null>(null);
+  const [digestBusy, setDigestBusy] = useState(false);
+  const [digestError, setDigestError] = useState<string | null>(null);
 
   const stateRef = useRef(state);
   useEffect(() => {
@@ -302,6 +322,72 @@ export function useRelaiStore() {
     }
   }, []);
 
+  const generateStandupDigest = useCallback(async (scopeNodeId: string | null) => {
+    const settings = loadSettings();
+    if (!settings.apiKey) {
+      setDigestError("먼저 LLM 키를 저장하세요 (노트 패널에서).");
+      return;
+    }
+    setDigestBusy(true);
+    setDigestError(null);
+    try {
+      const snapshot = buildActivitySnapshot(stateRef.current, scopeNodeId);
+      const content = await generateDigest({
+        provider: settings.provider,
+        apiKey: settings.apiKey,
+        model: settings.model,
+        activity: snapshot,
+      });
+      const scopeLabel = scopeNodeId
+        ? stateRef.current.org.find((n) => n.id === scopeNodeId)?.name ?? "팀"
+        : "전체";
+
+      setState((prev) => {
+        const id = newId("dg");
+        const digest = { id, ts: Date.now(), scopeLabel, content };
+        const notifications = prev.members.map((m) => ({
+          id: newId("ntf"),
+          toMemberId: m.id,
+          title: "새 다이제스트",
+          body: `${scopeLabel} 스탠드업 다이제스트가 생성됐어요.`,
+          ts: Date.now(),
+          read: false,
+        }));
+        const logEntry = {
+          id: newId("log"),
+          ts: Date.now(),
+          planName: "스탠드업 다이제스트",
+          taskTitle: `${scopeLabel} 요약`,
+          nodeName: scopeLabel,
+          steps: ["다이제스트 생성", `알림: 전체 ${prev.members.length}명`],
+        };
+        setTimeout(
+          () =>
+            setToasts((t) => [
+              ...t,
+              {
+                id: `toast_${id}`,
+                planName: "스탠드업 다이제스트",
+                taskTitle: `${scopeLabel} 요약`,
+                notifiedCount: notifications.length,
+              },
+            ]),
+          0
+        );
+        return {
+          ...prev,
+          digests: [digest, ...prev.digests],
+          notifications: [...notifications, ...prev.notifications],
+          log: [logEntry, ...prev.log],
+        };
+      });
+    } catch (e) {
+      setDigestError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDigestBusy(false);
+    }
+  }, []);
+
   const markAllRead = useCallback(() => {
     setState((prev) => ({
       ...prev,
@@ -347,11 +433,14 @@ export function useRelaiStore() {
     llmBusy,
     llmError,
     notesResult,
+    digestBusy,
+    digestError,
     setStatus,
     togglePlan,
     createCollabRequest,
     resolveCollabRequest,
     analyzeNotes,
+    generateStandupDigest,
     markAllRead,
     reset,
     exportJson,

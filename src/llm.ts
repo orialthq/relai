@@ -1,13 +1,5 @@
 import type { Provider } from "./settings";
 
-export interface ExtractInput {
-  provider: Provider;
-  apiKey: string;
-  model: string;
-  notes: string;
-  memberNames: string[];
-}
-
 export interface ActionItem {
   title: string;
   owner: string | null;
@@ -18,11 +10,77 @@ export interface ExtractResult {
   actionItems: ActionItem[];
 }
 
-const SYSTEM =
+interface CallInput {
+  provider: Provider;
+  apiKey: string;
+  model: string;
+  system: string;
+  user: string;
+  jsonMode?: boolean;
+}
+
+/** Shared browser-side BYOK call. Returns the model's text output. */
+async function callLLM(input: CallInput): Promise<string> {
+  if (input.provider === "anthropic") {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": input.apiKey,
+        "anthropic-version": "2023-06-01",
+        // allows the request straight from the browser with the user's own key
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model: input.model,
+        max_tokens: 1024,
+        system: input.system,
+        messages: [{ role: "user", content: input.user }],
+      }),
+    });
+    if (!res.ok) throw new Error(`Anthropic ${res.status} — ${await res.text()}`);
+    const data = await res.json();
+    return Array.isArray(data.content)
+      ? data.content.map((b: { text?: string }) => b.text ?? "").join("")
+      : "";
+  }
+
+  // openai
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${input.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: input.model,
+      messages: [
+        { role: "system", content: input.system },
+        { role: "user", content: input.user },
+      ],
+      ...(input.jsonMode ? { response_format: { type: "json_object" } } : {}),
+    }),
+  });
+  if (!res.ok) throw new Error(`OpenAI ${res.status} — ${await res.text()}`);
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content ?? "";
+}
+
+// ---------- #3 노트 → 액션아이템 ----------
+
+export interface ExtractInput {
+  provider: Provider;
+  apiKey: string;
+  model: string;
+  notes: string;
+  memberNames: string[];
+}
+
+const EXTRACT_SYSTEM =
   "너는 회의록에서 결정사항(decisions)과 액션아이템(action items)을 뽑아내는 도우미야. " +
   "반드시 JSON만 출력하고, 코드펜스나 다른 설명은 붙이지 마.";
 
-function userPrompt(notes: string, memberNames: string[]): string {
+function extractPrompt(notes: string, memberNames: string[]): string {
   return [
     "다음 회의록을 분석해서 아래 형식의 JSON만 출력해.",
     `팀 멤버: ${memberNames.length ? memberNames.join(", ") : "(없음)"}`,
@@ -37,7 +95,7 @@ function userPrompt(notes: string, memberNames: string[]): string {
   ].join("\n");
 }
 
-function parseResult(text: string): ExtractResult {
+function parseExtract(text: string): ExtractResult {
   const clean = text.replace(/```json/gi, "").replace(/```/g, "").trim();
   const parsed = JSON.parse(clean) as Partial<ExtractResult>;
   return {
@@ -51,51 +109,49 @@ function parseResult(text: string): ExtractResult {
 }
 
 export async function extractActionItems(input: ExtractInput): Promise<ExtractResult> {
-  const prompt = userPrompt(input.notes, input.memberNames);
-
-  if (input.provider === "anthropic") {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": input.apiKey,
-        "anthropic-version": "2023-06-01",
-        // required to allow the request straight from the browser with the user's own key
-        "anthropic-dangerous-direct-browser-access": "true",
-      },
-      body: JSON.stringify({
-        model: input.model,
-        max_tokens: 1024,
-        system: SYSTEM,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-    if (!res.ok) throw new Error(`Anthropic ${res.status} — ${await res.text()}`);
-    const data = await res.json();
-    const text: string = Array.isArray(data.content)
-      ? data.content.map((b: { text?: string }) => b.text ?? "").join("")
-      : "";
-    return parseResult(text);
-  }
-
-  // openai
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${input.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: input.model,
-      messages: [
-        { role: "system", content: SYSTEM },
-        { role: "user", content: prompt },
-      ],
-      response_format: { type: "json_object" },
-    }),
+  const text = await callLLM({
+    provider: input.provider,
+    apiKey: input.apiKey,
+    model: input.model,
+    system: EXTRACT_SYSTEM,
+    user: extractPrompt(input.notes, input.memberNames),
+    jsonMode: true,
   });
-  if (!res.ok) throw new Error(`OpenAI ${res.status} — ${await res.text()}`);
-  const data = await res.json();
-  const text: string = data.choices?.[0]?.message?.content ?? "";
-  return parseResult(text);
+  return parseExtract(text);
+}
+
+// ---------- #4 스탠드업 다이제스트 ----------
+
+export interface DigestInput {
+  provider: Provider;
+  apiKey: string;
+  model: string;
+  activity: string;
+}
+
+const DIGEST_SYSTEM =
+  "너는 작은 스타트업 팀의 스탠드업 다이제스트를 작성하는 도우미야. 간결한 한국어로, 군더더기 없이 정리해.";
+
+function digestPrompt(activity: string): string {
+  return [
+    "다음 작업 현황을 바탕으로 팀 스탠드업 다이제스트를 작성해.",
+    "형식:",
+    "- 팀별로 '✅ 완료 / 🔄 진행 중 / ⏭ 다음' 을 짧게.",
+    "- 맨 마지막에 '한 줄 총평' 한 줄.",
+    "- 마크다운 헤더(#)는 쓰지 말고, 팀 이름은 굵게(**팀명**) 정도만.",
+    "",
+    "작업 현황:",
+    activity,
+  ].join("\n");
+}
+
+export async function generateDigest(input: DigestInput): Promise<string> {
+  const text = await callLLM({
+    provider: input.provider,
+    apiKey: input.apiKey,
+    model: input.model,
+    system: DIGEST_SYSTEM,
+    user: digestPrompt(input.activity),
+  });
+  return text.trim();
 }

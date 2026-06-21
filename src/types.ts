@@ -59,14 +59,16 @@ export type Trigger =
   | { type: "taskStatusChange"; to: TaskStatus }
   | { type: "collabAccepted" }
   | { type: "manual" }
+  | { type: "schedule"; every: "day" | "week" }
   | { type: "webhook"; event: string };
 
-export type NotifyTarget = "assignee" | "node" | "fromNode" | "toNode";
+export type NotifyTarget = "assignee" | "node" | "fromNode" | "toNode" | "all";
 
 export type Step =
   | { type: "checkoff"; target: "task.link" }
   | { type: "createTask"; assignTo: "node.firstMember"; status: TaskStatus }
   | { type: "extract"; via: "llm" }
+  | { type: "summarize"; via: "llm" }
   | { type: "notify"; to: NotifyTarget[]; channel: "inapp" };
 
 export interface ActionPlan {
@@ -85,8 +87,16 @@ export interface AppState {
   checklists: Checklist[];
   plans: ActionPlan[];
   collabRequests: CollabRequest[];
+  digests: Digest[];
   notifications: Notification[];
   log: LogEntry[];
+}
+
+export interface Digest {
+  id: string;
+  ts: number;
+  scopeLabel: string;
+  content: string;
 }
 
 export type CollabStatus = "pending" | "accepted" | "declined";
