@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import type { AppState } from "./types";
-import { runPlansForTaskDone } from "./engine";
+import { runPlansForCollabAccepted, runPlansForTaskDone } from "./engine";
 
-const STORAGE_KEY = "relai.state.v1";
+const STORAGE_KEY = "relai.state.v2";
+
+let sid = 0;
+const newId = (p: string) => `${p}_${Date.now().toString(36)}_${(sid++).toString(36)}`;
 
 export function seedState(): AppState {
   return {
@@ -71,6 +74,29 @@ export function seedState(): AppState {
         ],
         requires: { llm: false, mcp: false },
       },
+      {
+        id: "ap_collab_route",
+        name: "협업 수락 → 작업 생성 & 배정",
+        enabled: true,
+        trigger: { type: "collabAccepted" },
+        steps: [
+          { type: "createTask", assignTo: "node.firstMember", status: "todo" },
+          { type: "notify", to: ["toNode", "fromNode"], channel: "inapp" },
+        ],
+        requires: { llm: false, mcp: false },
+      },
+    ],
+    collabRequests: [
+      {
+        id: "cr_seed",
+        fromNodeId: "n_prod",
+        toNodeId: "n_mkt",
+        title: "런칭 카피 작성",
+        note: "톤은 임팩트 있게, 1줄 헤드라인 + 3줄 서브",
+        actionPlanId: "ap_collab_route",
+        status: "pending",
+        createdTs: Date.now(),
+      },
     ],
     notifications: [],
     log: [],
@@ -83,7 +109,7 @@ function load(): AppState {
     if (!raw) return seedState();
     const parsed = JSON.parse(raw) as AppState;
     if (!parsed.tasks || !parsed.plans) return seedState();
-    return parsed;
+    return { ...seedState(), ...parsed }; // backfill any newly-added keys
   } catch {
     return seedState();
   }
@@ -143,6 +169,59 @@ export function useRelaiStore() {
     }));
   }, []);
 
+  const createCollabRequest = useCallback(
+    (input: { fromNodeId: string; toNodeId: string; title: string; note: string }) => {
+      setState((prev) => ({
+        ...prev,
+        collabRequests: [
+          {
+            id: newId("cr"),
+            fromNodeId: input.fromNodeId,
+            toNodeId: input.toNodeId,
+            title: input.title.trim(),
+            note: input.note.trim(),
+            actionPlanId: "ap_collab_route",
+            status: "pending",
+            createdTs: Date.now(),
+          },
+          ...prev.collabRequests,
+        ],
+      }));
+    },
+    []
+  );
+
+  const resolveCollabRequest = useCallback((id: string, accept: boolean) => {
+    setState((prev) => {
+      const req = prev.collabRequests.find((r) => r.id === id);
+      if (!req || req.status !== "pending") return prev;
+      const collabRequests = prev.collabRequests.map((r) =>
+        r.id === id ? { ...r, status: accept ? ("accepted" as const) : ("declined" as const), resolvedTs: Date.now() } : r
+      );
+      if (!accept) return { ...prev, collabRequests };
+
+      const result = runPlansForCollabAccepted({ ...prev, collabRequests }, id);
+      if (result.fired.length > 0) {
+        const newToasts: FiredToast[] = result.fired.map((f) => ({
+          id: `toast_${f.logEntry.id}`,
+          planName: f.planName,
+          taskTitle: req.title,
+          notifiedCount: f.notifications.length,
+        }));
+        setTimeout(() => setToasts((prev2) => [...prev2, ...newToasts]), 0);
+      }
+
+      return {
+        ...prev,
+        collabRequests,
+        tasks: result.tasks,
+        checklists: result.checklists,
+        notifications: [...result.notifications, ...prev.notifications],
+        log: [...result.log, ...prev.log],
+      };
+    });
+  }, []);
+
   const markAllRead = useCallback(() => {
     setState((prev) => ({
       ...prev,
@@ -187,6 +266,8 @@ export function useRelaiStore() {
     toasts,
     setStatus,
     togglePlan,
+    createCollabRequest,
+    resolveCollabRequest,
     markAllRead,
     reset,
     exportJson,

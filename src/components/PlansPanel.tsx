@@ -2,11 +2,13 @@ import type { ActionPlan, AppState } from "../types";
 
 function triggerLabel(p: ActionPlan): string {
   if (p.trigger.type === "taskStatusChange") return `작업 상태 → ${p.trigger.to}`;
+  if (p.trigger.type === "collabAccepted") return "협업 요청 수락됨";
   return `웹훅: ${p.trigger.event}`;
 }
 
 function stepLabel(step: ActionPlan["steps"][number]): string {
   if (step.type === "checkoff") return "회의록 항목 체크";
+  if (step.type === "createTask") return "작업 생성 & 배정";
   return `알림 → ${step.to.join(", ")}`;
 }
 

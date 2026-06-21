@@ -57,11 +57,15 @@ export interface LogEntry {
 
 export type Trigger =
   | { type: "taskStatusChange"; to: TaskStatus }
+  | { type: "collabAccepted" }
   | { type: "webhook"; event: string };
+
+export type NotifyTarget = "assignee" | "node" | "fromNode" | "toNode";
 
 export type Step =
   | { type: "checkoff"; target: "task.link" }
-  | { type: "notify"; to: ("assignee" | "node")[]; channel: "inapp" };
+  | { type: "createTask"; assignTo: "node.firstMember"; status: TaskStatus }
+  | { type: "notify"; to: NotifyTarget[]; channel: "inapp" };
 
 export interface ActionPlan {
   id: string;
@@ -78,6 +82,21 @@ export interface AppState {
   tasks: Task[];
   checklists: Checklist[];
   plans: ActionPlan[];
+  collabRequests: CollabRequest[];
   notifications: Notification[];
   log: LogEntry[];
+}
+
+export type CollabStatus = "pending" | "accepted" | "declined";
+
+export interface CollabRequest {
+  id: string;
+  fromNodeId: string;
+  toNodeId: string;
+  title: string; // 무엇을 요청하는지
+  note: string; // 추가 지시/프롬프트 (자유 텍스트)
+  actionPlanId: string; // 수락 시 실행할 플랜
+  status: CollabStatus;
+  createdTs: number;
+  resolvedTs?: number;
 }

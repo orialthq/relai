@@ -3,6 +3,7 @@ import { useRelaiStore } from "./store";
 import { OrgPanel } from "./components/OrgPanel";
 import { PlansPanel } from "./components/PlansPanel";
 import { TaskBoard } from "./components/TaskBoard";
+import { CollabPanel } from "./components/CollabPanel";
 import { ChecklistPanel } from "./components/ChecklistPanel";
 import { RelayLog, Notifications } from "./components/RelayLog";
 
@@ -58,6 +59,11 @@ export default function App() {
           <PlansPanel state={store.state} onToggle={store.togglePlan} />
         </div>
         <div className="col col--center">
+          <CollabPanel
+            state={store.state}
+            onCreate={store.createCollabRequest}
+            onResolve={store.resolveCollabRequest}
+          />
           <TaskBoard state={store.state} onSetStatus={store.setStatus} />
         </div>
         <div className="col col--right">

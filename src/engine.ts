@@ -17,6 +17,14 @@ export interface RunResult {
   fired: FireResult[];
 }
 
+export interface CollabRunResult {
+  tasks: AppState["tasks"];
+  checklists: Checklist[];
+  notifications: Notification[];
+  log: LogEntry[];
+  fired: FireResult[];
+}
+
 /**
  * The relay. When a task moves to `done`, every enabled plan whose trigger is
  * `taskStatusChange → done` fires: its steps run in order against the task's context.
@@ -113,4 +121,122 @@ export function runPlansForTaskDone(state: AppState, taskId: string): RunResult 
   }
 
   return { checklists, notifications: newNotifications, log: newLog, fired };
+}
+
+/**
+ * The router. When a collaboration request (node A → node B) is accepted,
+ * every enabled plan triggered by `collabAccepted` fires against the request's
+ * context: a task is created and assigned inside the receiving node, a matching
+ * checklist item is opened, and both nodes are notified.
+ */
+export function runPlansForCollabAccepted(state: AppState, requestId: string): CollabRunResult {
+  const empty: CollabRunResult = {
+    tasks: state.tasks,
+    checklists: state.checklists,
+    notifications: [],
+    log: [],
+    fired: [],
+  };
+
+  const req = state.collabRequests.find((r) => r.id === requestId);
+  if (!req) return empty;
+
+  const fromNode = state.org.find((n) => n.id === req.fromNodeId);
+  const toNode = state.org.find((n) => n.id === req.toNodeId);
+
+  const plans = state.plans.filter(
+    (p) => p.enabled && p.trigger.type === "collabAccepted"
+  );
+  if (plans.length === 0) return empty;
+
+  let tasks = state.tasks;
+  let checklists = state.checklists;
+  const newNotifications: Notification[] = [];
+  const newLog: LogEntry[] = [];
+  const fired: FireResult[] = [];
+
+  for (const plan of plans) {
+    const steps: string[] = [];
+    const planNotifications: Notification[] = [];
+    let createdTitle: string | undefined;
+
+    for (const step of plan.steps) {
+      if (step.type === "createTask") {
+        const toMembers = state.members.filter((m) => m.nodeId === req.toNodeId);
+        const assignee = toMembers[0];
+
+        // open a checklist item in the receiving node (create the checklist if missing)
+        const item = { id: uid("ci"), label: req.title, checked: false };
+        const existing = checklists.find((c) => c.nodeId === req.toNodeId);
+        let checklistId: string;
+        if (existing) {
+          checklistId = existing.id;
+          checklists = checklists.map((c) =>
+            c.id === existing.id ? { ...c, items: [...c.items, item] } : c
+          );
+        } else {
+          checklistId = uid("cl");
+          checklists = [
+            ...checklists,
+            { id: checklistId, name: `${toNode?.name ?? "팀"} 회의록`, nodeId: req.toNodeId, items: [item] },
+          ];
+        }
+
+        tasks = [
+          ...tasks,
+          {
+            id: uid("t"),
+            title: req.title,
+            status: step.status,
+            assigneeId: assignee?.id ?? "",
+            nodeId: req.toNodeId,
+            link: { checklistId, itemId: item.id },
+          },
+        ];
+        createdTitle = req.title;
+        steps.push(
+          `작업 생성: ${toNode?.name ?? "팀"} › ${req.title}${assignee ? ` (담당 ${assignee.name})` : ""}`
+        );
+      }
+
+      if (step.type === "notify") {
+        const recipientIds = new Set<string>();
+        if (step.to.includes("toNode"))
+          state.members.filter((m) => m.nodeId === req.toNodeId).forEach((m) => recipientIds.add(m.id));
+        if (step.to.includes("fromNode"))
+          state.members.filter((m) => m.nodeId === req.fromNodeId).forEach((m) => recipientIds.add(m.id));
+
+        for (const memberId of recipientIds) {
+          planNotifications.push({
+            id: uid("ntf"),
+            toMemberId: memberId,
+            title: `협업 수락: ${req.title}`,
+            body: `${fromNode?.name ?? "?"} → ${toNode?.name ?? "?"} 협업이 수락됐어요. "${req.title}" 작업이 생성됐습니다.`,
+            ts: Date.now(),
+            read: false,
+          });
+        }
+        const names = [...recipientIds]
+          .map((id) => state.members.find((m) => m.id === id)?.name)
+          .filter(Boolean)
+          .join(", ");
+        steps.push(`알림: ${names || "대상 없음"}`);
+      }
+    }
+
+    const logEntry: LogEntry = {
+      id: uid("log"),
+      ts: Date.now(),
+      planName: plan.name,
+      taskTitle: createdTitle ?? req.title,
+      nodeName: `${fromNode?.name ?? "?"} → ${toNode?.name ?? "?"}`,
+      steps,
+    };
+
+    newNotifications.push(...planNotifications);
+    newLog.push(logEntry);
+    fired.push({ planName: plan.name, logEntry, notifications: planNotifications });
+  }
+
+  return { tasks, checklists, notifications: newNotifications, log: newLog, fired };
 }
